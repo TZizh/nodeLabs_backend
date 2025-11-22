@@ -358,3 +358,56 @@ def repeater_config(request):
     device.config = cfg
     device.save(update_fields=['config', 'updated_at'])
     return Response({'status': 'ok'})
+
+@api_view(["POST", "GET"])
+def repeater_activity(request):
+    """
+    POST  /api/repeater/activity/   (called by ESP32 repeater)
+    GET   /api/repeater/activity/?limit=50   (optional: list recent events)
+    """
+
+    if request.method == "POST":
+        device = request.data.get("device", "RPT001")
+        msg_id = request.data.get("msg_id")
+        message = (request.data.get("message") or "").strip()
+        action = (request.data.get("action") or "received").lower().strip()
+
+        if action not in ("received", "retransmitted"):
+            action = "received"
+
+        # optional nested stats dict
+        stats_payload = request.data.get("stats") or {}
+        rx_total = stats_payload.get("rx_total")
+        tx_total = stats_payload.get("tx_total")
+        failed = stats_payload.get("failed")
+
+        activity = RepeaterActivity.objects.create(
+            device=device,
+            msg_id=msg_id,
+            message=message,
+            action=action,
+            voltage=request.data.get("voltage"),
+            signal_strength=request.data.get("signal_strength"),
+            tx_power=request.data.get("tx_power"),
+            rx_total=rx_total,
+            tx_total=tx_total,
+            failed=failed,
+        )
+
+        return Response(
+            {"status": "success", "activity_id": activity.id, "timestamp": activity.timestamp},
+            status=201,
+        )
+
+    # GET: list recent activity
+    raw_limit = request.query_params.get("limit", 50)
+    try:
+        limit = int(raw_limit)
+    except (TypeError, ValueError):
+        limit = 50
+    limit = max(1, min(limit, 500))
+
+    qs = RepeaterActivity.objects.all().order_by("-timestamp")[:limit]
+    data = RepeaterActivitySerializer(qs, many=True).data
+    return Response(data, status=200)
+
