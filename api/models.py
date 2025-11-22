@@ -1,8 +1,5 @@
-
 from django.db import models
-from django.utils import timezone
 
-# ===== Existing =====
 ROLE_CHOICES = (
     ('TX', 'Transmitter'),
     ('RX', 'Receiver'),
@@ -15,6 +12,7 @@ STATUS_CHOICES = (
     ('RECEIVED', 'Received'),
     ('FAILED', 'Failed'),
 )
+
 
 class Transmission(models.Model):
     device = models.CharField(max_length=64, blank=True, default='')
@@ -31,67 +29,34 @@ class Transmission(models.Model):
     def __str__(self):
         return f"[{self.role}] {self.device} @ {self.timestamp:%Y-%m-%d %H:%M:%S}"
 
-# ===== New: Repeater models =====
 
-class RepeaterDevice(models.Model):
-    device = models.CharField(primary_key=True, max_length=20)  # e.g., RPT001
-    friendly_name = models.CharField(max_length=64, blank=True, default="")
-    enabled = models.BooleanField(default=True)
-    latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
-    longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
-    config = models.JSONField(null=True, blank=True)  # future use
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = "repeater_device"
-
-    def __str__(self):
-        return self.device
-
-
-class RepeaterStatus(models.Model):
-    device = models.OneToOneField(RepeaterDevice, on_delete=models.CASCADE, primary_key=True, related_name="status")
-    last_seen = models.DateTimeField(default=timezone.now)
-    voltage = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
-    signal_strength = models.IntegerField(null=True, blank=True)  # 0..100
-    tx_power = models.IntegerField(null=True, blank=True)  # 0..100
-    rx_total = models.IntegerField(default=0)
-    tx_total = models.IntegerField(default=0)
-    failed = models.IntegerField(default=0)
-    uptime_seconds = models.IntegerField(default=0)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = "repeater_status"
-
-
+# NEW: per-event log for the repeater
 class RepeaterActivity(models.Model):
     ACTION_CHOICES = (
-        ("received", "received"),
-        ("retransmitted", "retransmitted"),
+        ('received', 'Received'),
+        ('retransmitted', 'Retransmitted'),
     )
-    id = models.BigAutoField(primary_key=True)
-    device = models.ForeignKey(RepeaterDevice, on_delete=models.CASCADE, related_name="activities")
-    msg_id = models.IntegerField()
-    message = models.TextField()
-    action = models.CharField(max_length=16, choices=ACTION_CHOICES)
-    voltage = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
-    signal_strength = models.IntegerField(null=True, blank=True)
-    tx_power = models.IntegerField(null=True, blank=True)
-    rx_total = models.IntegerField(default=0)
-    tx_total = models.IntegerField(default=0)
-    failed = models.IntegerField(default=0)
+
     timestamp = models.DateTimeField(auto_now_add=True)
 
+    device = models.CharField(max_length=64, blank=True, default='')  # e.g. "RPT001"
+    msg_id = models.IntegerField(null=True, blank=True)
+    message = models.TextField(blank=True, default='')
+
+    action = models.CharField(max_length=16, choices=ACTION_CHOICES)
+
+    # Telemetry from firmware
+    voltage = models.FloatField(null=True, blank=True)
+    signal_strength = models.IntegerField(null=True, blank=True)
+    tx_power = models.IntegerField(null=True, blank=True)
+
+    # Snapshot of repeater counters
+    rx_total = models.IntegerField(null=True, blank=True)
+    tx_total = models.IntegerField(null=True, blank=True)
+    failed = models.IntegerField(null=True, blank=True)
+
     class Meta:
-        db_table = "repeater_activity"
-        indexes = [
-            models.Index(fields=["device", "msg_id"], name="idx_device_msgid"),
-            models.Index(fields=["timestamp"], name="idx_timestamp"),
-            models.Index(fields=["device"], name="idx_device"),
-        ]
+        ordering = ['-timestamp']
 
     def __str__(self):
-        return f"{self.device_id} #{self.msg_id} {self.action} @ {self.timestamp}"
+        return f"{self.device} {self.action} msg#{self.msg_id} @ {self.timestamp:%Y-%m-%d %H:%M:%S}"
