@@ -3,12 +3,10 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
 from django.utils import timezone
-from django.db.models import Count, Q, Avg
-from django.db.models.functions import TruncHour, TruncMinute
-from datetime import timedelta
+from django.db.models import Count, Q
 
-from .models import Transmission, RepeaterActivity, RepeaterStatus, RepeaterDevice
-from .serializers import TransmissionSerializer, RepeaterActivityCreateSerializer
+from .models import Transmission, RepeaterActivity
+from .serializers import TransmissionSerializer, RepeaterActivitySerializer
 
 VALID_ROLES = {"TX", "RX", "RELAY"}
 
