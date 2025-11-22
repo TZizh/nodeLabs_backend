@@ -22,18 +22,4 @@ class TransmissionSerializer(serializers.ModelSerializer):
 class RepeaterActivitySerializer(serializers.ModelSerializer):
     class Meta:
         model = RepeaterActivity
-        fields = [
-            "id",
-            "timestamp",
-            "device",
-            "msg_id",
-            "message",
-            "action",
-            "voltage",
-            "signal_strength",
-            "tx_power",
-            "rx_total",
-            "tx_total",
-            "failed",
-        ]
-        read_only_fields = fields
+        fields = "__all__"
