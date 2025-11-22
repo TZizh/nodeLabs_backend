@@ -411,3 +411,40 @@ def repeater_activity(request):
     data = RepeaterActivitySerializer(qs, many=True).data
     return Response(data, status=200)
 
+@api_view(['GET'])
+def stats(request):
+    try:
+        today = timezone.now().date()
+        qs = Transmission.objects.all()
+
+        total_messages = qs.count()
+        sent_today = qs.filter(role='TX', timestamp__date=today).count()
+        received_today = qs.filter(role='RX', timestamp__date=today).count()
+
+        pending_tx = qs.filter(role='TX').filter(
+            Q(status='PENDING') | Q(status__isnull=True)
+        ).count()
+
+        by_role = dict(qs.values('role').annotate(count=Count('id')).values_list('role', 'count'))
+        by_status = dict(qs.values('status').annotate(count=Count('id')).values_list('status', 'count'))
+
+        # NEW: repeater summary
+        rpt_qs = RepeaterActivity.objects.all()
+        repeater = {
+            "events": rpt_qs.count(),
+            "received": rpt_qs.filter(action="received").count(),
+            "retransmitted": rpt_qs.filter(action="retransmitted").count(),
+        }
+
+        return Response({
+            'total_messages': total_messages,
+            'sent_today': sent_today,
+            'received_today': received_today,
+            'pending_tx': pending_tx,
+            'by_role': by_role,
+            'by_status': by_status,
+            'repeater': repeater,
+        }, status=200)
+
+    except Exception as e:
+        return Response({'detail': f'stats endpoint error: {str(e)}'}, status=400)
