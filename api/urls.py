@@ -8,7 +8,8 @@ urlpatterns = [
     path('tx/', views.tx_message, name='tx_message'),
     # ESP32 TX
     path('tx/pending/', views.tx_pending, name='tx_pending'),
-    path('tx/sent/', views.tx_sent, name='tx_sent'),
+    # This has been removed to cater for the new logic
+    # path('tx/sent/', views.tx_sent, name='tx_sent'),
 
     # ESP32 RX
     path('rx/', views.rx_message, name='rx_message'),
