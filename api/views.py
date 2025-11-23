@@ -68,28 +68,25 @@ def tx_sent(request):
 def rx_message(request):
     """
     RX endpoint.
-
     - Logs the received RF message as an RX record (for the Dashboard).
-    - Uses msg_id to mark the matching TX message as SENT, so it no longer
-      appears as PENDING in the queue.
+    - Uses msg_id to mark the matching TX message as SENT, so it no longer appears as PENDING in the queue.
     """
-
     data = request.data
-
     msg_id_raw = data.get("msg_id")
     message = data.get("message", "")
     device = data.get("device", "RX001")
 
     # 1) Create RX message row
     rx_payload = {
-      "role": "RX",
-      "device": device,
-      "message": message,
-      "status": "SENT",        # or "RECEIVED" if you have that, but SENT is fine
-      "msg_id": msg_id_raw,
+        "role": "RX",
+        "device": device,
+        "message": message,
+        "status": "SENT",  # or "RECEIVED" 
+        "msg_id": msg_id_raw,
     }
-
-    rx_serializer = MessageSerializer(data=rx_payload)
+    
+    # Fixed: Use TransmissionSerializer instead of MessageSerializer
+    rx_serializer = TransmissionSerializer(data=rx_payload)
     rx_serializer.is_valid(raise_exception=True)
     rx_obj = rx_serializer.save()
 
@@ -102,7 +99,7 @@ def rx_message(request):
 
     if msg_id_int is not None:
         updated = (
-            Message.objects.filter(
+            Transmission.objects.filter(  # Fixed: Use Transmission instead of Message
                 role="TX",
                 status="PENDING",
                 msg_id=msg_id_int,
