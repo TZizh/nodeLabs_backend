@@ -64,59 +64,60 @@ def tx_sent(request):
     return Response({'status': 'ok', 'message': f'Message #{msg_id} marked as sent'}, status=200)
 
 # ---------- ESP32 RX posts received ----------
-@api_view(["POST"])
+# ---------- ESP32 RX posts received ----------
+@api_view(['POST'])
 def rx_message(request):
     """
-    RX endpoint.
-    - Logs the received RF message as an RX record (for the Dashboard).
-    - Uses msg_id to mark the matching TX message as SENT, so it no longer appears as PENDING in the queue.
+    RX endpoint does TWO things:
+    1. Logs the received RF message as an RX record (for the Dashboard).
+    2. Marks the matching TX message as SENT (to stop TX from retrying).
     """
-    data = request.data
-    msg_id_raw = data.get("msg_id")
-    message = data.get("message", "")
-    device = data.get("device", "RX001")
+    msg = (request.data.get('message') or "").strip()
+    dev = request.data.get('device', 'RX001')
+    msg_id = request.data.get('msg_id')
 
-    # 1) Create RX message row
-    rx_payload = {
-        "role": "RX",
-        "device": device,
-        "message": message,
-        "status": "SENT",  # or "RECEIVED" 
-        "msg_id": msg_id_raw,
-    }
-    
-    # Fixed: Use TransmissionSerializer instead of MessageSerializer
-    rx_serializer = TransmissionSerializer(data=rx_payload)
-    rx_serializer.is_valid(raise_exception=True)
-    rx_obj = rx_serializer.save()
+    if not msg:
+        return Response({'error': 'Message cannot be empty'}, status=400)
 
-    # 2) ACK in DB: mark matching TX as SENT
-    updated = 0
-    try:
-        msg_id_int = int(msg_id_raw)
-    except (TypeError, ValueError):
-        msg_id_int = None
-
-    if msg_id_int is not None:
-        updated = (
-            Transmission.objects.filter(  # Fixed: Use Transmission instead of Message
-                role="TX",
-                status="PENDING",
-                msg_id=msg_id_int,
-            )
-            .update(
-                status="SENT",
-                sent_at=timezone.now(),
-            )
-        )
-
-    return Response(
-        {
-            "rx": rx_serializer.data,
-            "tx_updated": updated,
-        },
-        status=status.HTTP_201_CREATED,
+    # STEP 1: Create RX record showing we received this message
+    rx = Transmission.objects.create(
+        device=dev,
+        role='RX',
+        message=msg,
+        msg_id=msg_id,
+        status='RECEIVED',
+        received_at=timezone.now()
     )
+
+    # STEP 2: Mark the matching TX message as SENT (so TX stops retrying)
+    updated = 0
+    if msg_id is not None:
+        try:
+            msg_id_int = int(msg_id)
+            updated = Transmission.objects.filter(
+                role='TX',
+                status='PENDING',
+                msg_id=msg_id_int
+            ).update(
+                status='SENT',
+                sent_at=timezone.now()
+            )
+            
+            if updated > 0:
+                print(f"✅ Marked TX message #{msg_id_int} as SENT (RX confirmed)")
+            else:
+                print(f"⚠️ No matching PENDING TX found for msg_id={msg_id_int}")
+                
+        except (TypeError, ValueError) as e:
+            print(f"⚠️ Invalid msg_id format: {msg_id} - {e}")
+
+    return Response({
+        'status': 'ok',
+        'id': rx.id,
+        'message': 'Message received and logged',
+        'tx_updated': updated
+    }, status=201)
+
 
 # ---------- List recent messages ----------
 @api_view(['GET'])
