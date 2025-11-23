@@ -19,14 +19,29 @@ def health(request):
 def tx_message(request):
     msg = (request.data.get('message') or "").strip()
     dev = request.data.get('device', 'WebUI')
-
     if not msg:
         return Response({'error': 'Message cannot be empty'}, status=status.HTTP_400_BAD_REQUEST)
 
     tx = Transmission.objects.create(
-        device=dev, role='TX', message=msg, status='PENDING'
+        device=dev,
+        role='TX',
+        message=msg,
+        status='PENDING'
     )
-    return Response({'status': 'ok', 'id': tx.id, 'message': 'Message queued for transmission'}, status=201)
+    
+    # CRITICAL: Set msg_id to the auto-generated ID so RX can match it later
+    tx.msg_id = tx.id
+    tx.save()
+    
+    print(f"📤 Queued TX message #{tx.id} (msg_id={tx.msg_id}): {msg[:50]}")
+
+    return Response({
+        'status': 'ok',
+        'id': tx.id,
+        'msg_id': tx.msg_id,
+        'message': 'Message queued for transmission'
+    }, status=201)
+
 
 # ---------- ESP32 TX pulls one pending ----------
 @api_view(['GET'])
@@ -35,35 +50,20 @@ def tx_pending(request):
                .order_by('timestamp').first())
     if not pending:
         return Response({'status': 'no_messages', 'message': None}, status=200)
-
+    
+    # Ensure msg_id is set (backwards compatibility)
+    if not pending.msg_id:
+        pending.msg_id = pending.id
+        pending.save()
+    
     return Response({
         'id': pending.id,
+        'msg_id': pending.msg_id,  # Include msg_id in response
         'message': pending.message,
         'timestamp': pending.timestamp.isoformat() if pending.timestamp else None,
     }, status=200)
 
-# ---------- ESP32 TX marks sent ----------
-@api_view(['POST'])
-def tx_sent(request):
-    msg_id = request.data.get('id')
-    device = request.data.get('device', 'TX001')
 
-    if not msg_id:
-        return Response({'error': 'Message ID required'}, status=400)
-
-    try:
-        tx = Transmission.objects.get(id=msg_id, role='TX')
-    except Transmission.DoesNotExist:
-        return Response({'error': f'Message ID {msg_id} not found'}, status=404)
-
-    tx.status = 'SENT'
-    tx.sent_at = timezone.now()
-    tx.device = device
-    tx.save()
-
-    return Response({'status': 'ok', 'message': f'Message #{msg_id} marked as sent'}, status=200)
-
-# ---------- ESP32 RX posts received ----------
 # ---------- ESP32 RX posts received ----------
 @api_view(['POST'])
 def rx_message(request):
@@ -88,12 +88,16 @@ def rx_message(request):
         status='RECEIVED',
         received_at=timezone.now()
     )
+    
+    print(f"📥 RX received msg_id={msg_id}: {msg[:50]}")
 
     # STEP 2: Mark the matching TX message as SENT (so TX stops retrying)
     updated = 0
     if msg_id is not None:
         try:
             msg_id_int = int(msg_id)
+            
+            # Try matching by msg_id first
             updated = Transmission.objects.filter(
                 role='TX',
                 status='PENDING',
@@ -103,10 +107,25 @@ def rx_message(request):
                 sent_at=timezone.now()
             )
             
+            # If msg_id didn't work, try matching by id (backwards compatibility)
+            if updated == 0:
+                updated = Transmission.objects.filter(
+                    role='TX',
+                    status='PENDING',
+                    id=msg_id_int
+                ).update(
+                    status='SENT',
+                    sent_at=timezone.now(),
+                    msg_id=msg_id_int  # Set msg_id if it was missing
+                )
+            
             if updated > 0:
                 print(f"✅ Marked TX message #{msg_id_int} as SENT (RX confirmed)")
             else:
                 print(f"⚠️ No matching PENDING TX found for msg_id={msg_id_int}")
+                # Debug: Show what TX records exist
+                all_tx = Transmission.objects.filter(role='TX').values('id', 'msg_id', 'status')[:5]
+                print(f"   Recent TX records: {list(all_tx)}")
                 
         except (TypeError, ValueError) as e:
             print(f"⚠️ Invalid msg_id format: {msg_id} - {e}")
